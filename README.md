@@ -94,7 +94,19 @@ python3 generate_player_report.py
 
 입력 형식: `GameName#TAG` (예: `Faker#KR1`)
 
-### AI 분석 Discord 봇 실행
+### 통합 Discord 봇 실행 (추천)
+
+```bash
+python3 unified_bot.py
+```
+
+**특징:**
+- 🌍 멀티 리전 지원 (KR, NA, EUW, EUNE, BR, LAN, LAS, OCE, JP, SG)
+- 🤖 AI 분석 통합
+- ⚙️ 사용자별 지역 설정
+- 📋 통합 `/help` 명령어
+
+### 개별 지역 봇 실행
 
 ```bash
 cd kr_bot  # or na_bot
@@ -102,6 +114,13 @@ python3 analysis_bot.py
 ```
 
 ## Discord 봇 명령어
+
+### 통합 봇 (unified_bot.py) - 추천
+- `/help` - **전체 명령어 도움말**
+- `/region` - **지역 설정** (KR, NA, EUW 등)
+- `/myinfo` - 내 설정 정보 확인
+- `/analyze riot_id:이름#태그` - 완전 AI 분석 (100게임)
+- `/quick riot_id:이름#태그` - 빠른 AI 분석 (30게임)
 
 ### AI 전적 분석 (analysis_bot.py)
 - `/analyze riot_id:Name#TAG` - **완전 AI 분석** (100게임, 2-3분 소요)
@@ -131,6 +150,42 @@ python3 analysis_bot.py
 
 - `player_report_이름_날짜.txt` - AI 분석용 상세 리포트
 - `player_data_이름_날짜.json` - 원본 게임 데이터
+
+## Discord Bot 설정
+
+자세한 봇 설정 방법은 [DISCORD_SETUP.md](DISCORD_SETUP.md)를 참고하세요.
+
+### 빠른 시작
+1. Discord Developer Portal에서 Bot 생성
+2. Bot Permissions 설정 (Send Messages, Embed Links, Use Slash Commands)
+3. `.env` 파일에 토큰 입력
+4. `python3 unified_bot.py` 실행
+5. Discord에서 `/help` 입력
+
+## 사용 플로우
+
+```
+1. Discord에서 /help 입력
+   ↓
+2. /region 명령어로 지역 선택 (KR, NA, EUW 등)
+   ↓
+3. /analyze riot_id:이름#태그 입력
+   ↓
+4. 2-3분 후 AI 분석 결과 확인!
+```
+
+## 지원 지역
+
+- 🇰🇷 KR (한국)
+- 🇺🇸 NA (북미)
+- 🇪🇺 EUW (유럽 서부)
+- 🇪🇺 EUNE (유럽 북동부)
+- 🇧🇷 BR (브라질)
+- 🇲🇽 LAN (라틴 북부)
+- 🇦🇷 LAS (라틴 남부)
+- 🇦🇺 OCE (오세아니아)
+- 🇯🇵 JP (일본)
+- 🇸🇬 SG (싱가포르)
 
 ## 라이선스
 
