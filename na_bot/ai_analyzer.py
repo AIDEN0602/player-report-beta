@@ -5,8 +5,9 @@ Analyzes player data and provides detailed insights
 
 import os
 from anthropic import Anthropic
-from typing import Dict
+from typing import Dict, List
 from dotenv import load_dotenv
+import discord
 
 load_dotenv()
 
