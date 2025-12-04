@@ -1,13 +1,30 @@
-# LoL Player Report Generator
+# LoL AI Analysis System
 
-League of Legends 플레이어 전적 분석 도구
+League of Legends AI 전적 분석 시스템 - Claude AI 기반
 
-## 기능
+## 🌟 주요 기능
 
-- 최근 100게임 랭크 전적 다운로드
-- 챔피언별, 포지션별 통계 분석
-- AI 분석용 리포트 자동 생성
-- Discord 봇 통합 (프로필 설정, 스카우팅, 라이브 게임 분석)
+### 1. AI 전적 분석 (Discord Bot)
+- **완전 분석**: 100게임 기반 심층 분석
+- **빠른 분석**: 30게임 기반 즉시 분석
+- Claude AI가 제공하는 프로급 인사이트
+
+### 2. 분석 내용
+- ✅ 예상 티어 (통계 기반 티어 예측)
+- ✅ 플레이 스타일 분석
+- ✅ 강점 & 약점
+- ✅ 챔피언별 매치업 승률
+- ✅ 승리 플랜 (구체적인 게임 전략)
+- ✅ 즉시 개선 가능한 부분
+- ✅ 장기 성장 로드맵
+
+### 3. 프로급 통계
+- 팀 조합 분석 (5vs5 풀 데이터)
+- 블루/레드 사이드 승률
+- 게임 길이별 퍼포먼스
+- 멀티킬 & 오브젝트 통계
+- 데스 타이밍 분석
+- 퍼스트 블러드 참여율
 
 ## 구성
 
@@ -27,14 +44,37 @@ pip install -r requirements.txt
 
 ## 환경 설정
 
-각 봇 폴더에 `.env` 파일 생성:
+각 봇 폴더에 `.env` 파일 생성 (`.env.example` 참고):
 
 ```env
-RIOT_API_KEY=your_api_key_here
-DISCORD_TOKEN=your_discord_token_here
-RIOT_REGION=kr  # or na1
-RIOT_ROUTING=asia  # or americas
+# Discord Bot Token
+DISCORD_TOKEN=your_discord_bot_token_here
+
+# Riot Games API Key
+RIOT_API_KEY=your_riot_api_key_here
+
+# Region (KR: kr/asia, NA: na1/americas, EUW: euw1/europe)
+RIOT_REGION=na1
+RIOT_ROUTING=americas
+
+# Claude AI API Key (for AI analysis)
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
 ```
+
+### API 키 발급
+
+1. **Discord Bot Token**
+   - https://discord.com/developers/applications
+   - Bot 생성 후 TOKEN 복사
+   - Bot Permissions: `Send Messages`, `Embed Links`, `Attach Files`, `Use Slash Commands`
+
+2. **Riot API Key**
+   - https://developer.riotgames.com/
+   - 로그인 후 API Key 발급
+
+3. **Anthropic API Key**
+   - https://console.anthropic.com/
+   - Account Settings > API Keys
 
 ## 사용법
 
@@ -54,15 +94,31 @@ python3 generate_player_report.py
 
 입력 형식: `GameName#TAG` (예: `Faker#KR1`)
 
-### Discord 봇 실행
+### AI 분석 Discord 봇 실행
 
 ```bash
 cd kr_bot  # or na_bot
-python3 bot.py
+python3 analysis_bot.py
 ```
 
 ## Discord 봇 명령어
 
+### AI 전적 분석 (analysis_bot.py)
+- `/analyze riot_id:Name#TAG` - **완전 AI 분석** (100게임, 2-3분 소요)
+  - 예상 티어
+  - 플레이 스타일
+  - 강점/약점
+  - 승리 플랜
+  - 개선 로드맵
+
+- `/quick_analyze riot_id:Name#TAG` - **빠른 AI 분석** (30게임, 1분 소요)
+  - 기본 통계
+  - 예상 티어
+  - 즉시 개선 가능한 부분
+
+- `/help_analysis` - 도움말
+
+### 기본 봇 (bot.py)
 - `/profile_setup riot_id:Name#TAG` - 프로필 설정
 - `/profile_show` - 프로필 확인
 - `/profile_set role:TOP` - 포지션 변경
