@@ -88,11 +88,17 @@ class RiotAPI:
             "kills": 0,
             "deaths": 0,
             "assists": 0,
-            "champion_stats": {},  # {champion: {games, wins, kills, deaths, assists}}
+            "champion_stats": {},  # {champion: {games, wins, kills, deaths, assists, vs_champions: {}}}
             "role_stats": {},      # {role: {games, wins}}
             "recent_form": [],     # Last 20 games W/L
             "player_name": "Unknown",
-            "games_detail": []     # Full game details for AI
+            "games_detail": [],    # Full game details for AI
+            "matchup_stats": {},   # {my_champ: {vs_champ: {games, wins}}}
+            "time_stats": {        # Performance by game time
+                "early": {"games": 0, "wins": 0},  # 0-20 min
+                "mid": {"games": 0, "wins": 0},    # 20-30 min
+                "late": {"games": 0, "wins": 0}    # 30+ min
+            }
         }
 
         for idx, match_id in enumerate(match_ids, 1):
@@ -135,10 +141,19 @@ class RiotAPI:
             player_stats["deaths"] += deaths
             player_stats["assists"] += assists
 
+            # Find lane opponent (same role, different team)
+            lane_opponent = None
+            for p in participants:
+                if (p.get("teamPosition") == player.get("teamPosition") and
+                    p.get("teamId") != player.get("teamId")):
+                    lane_opponent = p.get("championName", "Unknown")
+                    break
+
             # Champion stats
             if champion not in player_stats["champion_stats"]:
                 player_stats["champion_stats"][champion] = {
-                    "games": 0, "wins": 0, "kills": 0, "deaths": 0, "assists": 0
+                    "games": 0, "wins": 0, "kills": 0, "deaths": 0, "assists": 0,
+                    "vs_champions": {}
                 }
             player_stats["champion_stats"][champion]["games"] += 1
             if won:
@@ -146,6 +161,16 @@ class RiotAPI:
             player_stats["champion_stats"][champion]["kills"] += kills
             player_stats["champion_stats"][champion]["deaths"] += deaths
             player_stats["champion_stats"][champion]["assists"] += assists
+
+            # Matchup tracking
+            if lane_opponent:
+                if lane_opponent not in player_stats["champion_stats"][champion]["vs_champions"]:
+                    player_stats["champion_stats"][champion]["vs_champions"][lane_opponent] = {
+                        "games": 0, "wins": 0
+                    }
+                player_stats["champion_stats"][champion]["vs_champions"][lane_opponent]["games"] += 1
+                if won:
+                    player_stats["champion_stats"][champion]["vs_champions"][lane_opponent]["wins"] += 1
 
             # Role stats
             if role not in player_stats["role_stats"]:
@@ -158,6 +183,19 @@ class RiotAPI:
             if len(player_stats["recent_form"]) < 20:
                 player_stats["recent_form"].append("W" if won else "L")
 
+            # Game time stats
+            game_duration_min = info.get("gameDuration", 0) // 60
+            if game_duration_min < 20:
+                time_category = "early"
+            elif game_duration_min < 30:
+                time_category = "mid"
+            else:
+                time_category = "late"
+
+            player_stats["time_stats"][time_category]["games"] += 1
+            if won:
+                player_stats["time_stats"][time_category]["wins"] += 1
+
             # Detailed game data for AI
             game_detail = {
                 "game_number": player_stats["total_games"],
@@ -169,7 +207,31 @@ class RiotAPI:
                 "gold": player.get("goldEarned", 0),
                 "damage": player.get("totalDamageDealtToChampions", 0),
                 "vision_score": player.get("visionScore", 0),
-                "game_duration": info.get("gameDuration", 0) // 60,  # minutes
+                "game_duration": game_duration_min,
+                "lane_opponent": lane_opponent,
+                # Lane stats
+                "lane_kills": player.get("challenges", {}).get("laneMinionsFirst10Minutes", 0),
+                "turret_plates": player.get("challenges", {}).get("turretPlatesTaken", 0),
+                "solo_kills": player.get("challenges", {}).get("soloKills", 0),
+                "kill_participation": player.get("challenges", {}).get("killParticipation", 0),
+                "damage_per_min": player.get("challenges", {}).get("damagePerMinute", 0),
+                "gold_per_min": player.get("challenges", {}).get("goldPerMinute", 0),
+                # Advanced stats
+                "damage_taken": player.get("totalDamageTaken", 0),
+                "damage_mitigated": player.get("damageSelfMitigated", 0),
+                "cc_time": player.get("timeCCingOthers", 0),
+                "control_wards": player.get("challenges", {}).get("controlWardsPlaced", 0),
+                "wards_placed": player.get("wardsPlaced", 0),
+                "wards_killed": player.get("wardsKilled", 0),
+                # Items
+                "items": [
+                    player.get("item0", 0), player.get("item1", 0), player.get("item2", 0),
+                    player.get("item3", 0), player.get("item4", 0), player.get("item5", 0),
+                    player.get("item6", 0)
+                ],
+                # Summoner spells
+                "spell1": player.get("summoner1Id", 0),
+                "spell2": player.get("summoner2Id", 0),
             }
             player_stats["games_detail"].append(game_detail)
 
@@ -226,13 +288,39 @@ def generate_ai_prompt(stats: Dict) -> str:
     for champ, champ_stat in top_champs:
         champ_wr = (champ_stat["wins"] / champ_stat["games"] * 100) if champ_stat["games"] > 0 else 0
         champ_kda = ((champ_stat["kills"] + champ_stat["assists"]) / max(champ_stat["deaths"], 1))
-        prompt += f"- {champ}: {champ_stat['games']} games ({champ_wr:.1f}% WR, {champ_kda:.2f} KDA)\n"
+        prompt += f"- **{champ}**: {champ_stat['games']} games ({champ_wr:.1f}% WR, {champ_kda:.2f} KDA)\n"
 
-    prompt += "\n### Detailed Game History\n"
+        # Show top matchups for this champion
+        if champ_stat.get("vs_champions"):
+            matchups = sorted(
+                champ_stat["vs_champions"].items(),
+                key=lambda x: x[1]["games"],
+                reverse=True
+            )[:3]
+            if matchups:
+                prompt += f"  Top matchups:\n"
+                for vs_champ, vs_stat in matchups:
+                    vs_wr = (vs_stat["wins"] / vs_stat["games"] * 100) if vs_stat["games"] > 0 else 0
+                    prompt += f"    vs {vs_champ}: {vs_stat['games']} games ({vs_wr:.1f}% WR)\n"
+
+    # Game time performance
+    prompt += "\n### Performance by Game Length\n"
+    for time_cat in ["early", "mid", "late"]:
+        time_stat = stats["time_stats"][time_cat]
+        if time_stat["games"] > 0:
+            time_wr = (time_stat["wins"] / time_stat["games"] * 100)
+            time_label = "Early (0-20min)" if time_cat == "early" else "Mid (20-30min)" if time_cat == "mid" else "Late (30+ min)"
+            prompt += f"- {time_label}: {time_stat['games']} games ({time_wr:.1f}% WR)\n"
+
+    prompt += "\n### Detailed Game History (Last 30 Games)\n"
     prompt += "```\n"
-    for game in stats["games_detail"][:30]:  # Show first 30 games detail
+    prompt += f"{'#':>3} | {'Result':5} | {'Champion':15} | {'Role':3} | {'KDA':9} | {'vs':15} | {'CS':3} | {'DMG':6} | {'Vision':3} | {'KP':5} | {'Time':4}\n"
+    prompt += "-" * 120 + "\n"
+    for game in stats["games_detail"][:30]:
         result = "WIN " if game["win"] else "LOSS"
-        prompt += f"Game {game['game_number']:3d} | {result} | {game['champion']:15s} | {game['role']:3s} | {game['kda']:9s} | {game['cs']:3d}CS | {game['damage']:6d}DMG\n"
+        vs_champ = (game.get("lane_opponent", "Unknown") or "Unknown")[:15]
+        kp = f"{game.get('kill_participation', 0):.1%}" if game.get('kill_participation') else "N/A"
+        prompt += f"{game['game_number']:3d} | {result} | {game['champion']:15s} | {game['role']:3s} | {game['kda']:9s} | {vs_champ:15s} | {game['cs']:3d} | {game['damage']:6d} | {game['vision_score']:3d} | {kp:>5s} | {game['game_duration']:2d}m\n"
     prompt += "```\n"
 
     prompt += """
