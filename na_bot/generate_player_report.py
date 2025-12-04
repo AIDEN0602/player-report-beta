@@ -88,7 +88,7 @@ class RiotAPI:
             "kills": 0,
             "deaths": 0,
             "assists": 0,
-            "champion_stats": {},  # {champion: {games, wins, kills, deaths, assists, vs_champions: {}}}
+            "champion_stats": {},  # {champion: {games, wins, kills, deaths, assists, vs_champions: {}, item_builds: [], runes: {}}}
             "role_stats": {},      # {role: {games, wins}}
             "recent_form": [],     # Last 20 games W/L
             "player_name": "Unknown",
@@ -98,7 +98,26 @@ class RiotAPI:
                 "early": {"games": 0, "wins": 0},  # 0-20 min
                 "mid": {"games": 0, "wins": 0},    # 20-30 min
                 "late": {"games": 0, "wins": 0}    # 30+ min
-            }
+            },
+            "team_composition_stats": [],  # Team comps for each game
+            "side_stats": {"blue": {"games": 0, "wins": 0}, "red": {"games": 0, "wins": 0}},  # Blue vs Red side
+            "death_analysis": {  # Where deaths happen
+                "early_deaths": 0,  # 0-15 min
+                "mid_deaths": 0,    # 15-25 min
+                "late_deaths": 0    # 25+ min
+            },
+            "first_blood_stats": {"participated": 0, "victim": 0, "total": 0},
+            "objective_stats": {
+                "baron_kills": 0,
+                "dragon_kills": 0,
+                "herald_kills": 0,
+                "tower_kills": 0,
+                "inhibitor_kills": 0
+            },
+            "pentakills": 0,
+            "quadrakills": 0,
+            "triplekills": 0,
+            "doublekills": 0
         }
 
         for idx, match_id in enumerate(match_ids, 1):
@@ -172,6 +191,60 @@ class RiotAPI:
                 if won:
                     player_stats["champion_stats"][champion]["vs_champions"][lane_opponent]["wins"] += 1
 
+            # Multi-kills
+            player_stats["pentakills"] += player.get("pentaKills", 0)
+            player_stats["quadrakills"] += player.get("quadraKills", 0)
+            player_stats["triplekills"] += player.get("tripleKills", 0)
+            player_stats["doublekills"] += player.get("doubleKills", 0)
+
+            # Objectives
+            player_stats["objective_stats"]["baron_kills"] += player.get("challenges", {}).get("baronTakedowns", 0)
+            player_stats["objective_stats"]["dragon_kills"] += player.get("challenges", {}).get("dragonTakedowns", 0)
+            player_stats["objective_stats"]["herald_kills"] += player.get("challenges", {}).get("riftHeraldTakedowns", 0)
+            player_stats["objective_stats"]["tower_kills"] += player.get("challenges", {}).get("turretTakedowns", 0)
+
+            # First blood
+            player_stats["first_blood_stats"]["total"] += 1
+            if player.get("firstBloodKill", False) or player.get("firstBloodAssist", False):
+                player_stats["first_blood_stats"]["participated"] += 1
+            if player.get("deaths", 0) > 0:
+                # Check if they were first blood victim (this is approximate)
+                game_duration = info.get("gameDuration", 0)
+                if game_duration > 0 and deaths > 0:
+                    pass  # We'll estimate from timeline if needed
+
+            # Side (Blue/Red)
+            player_team_id = player.get("teamId", 0)
+            side = "blue" if player_team_id == 100 else "red"
+            player_stats["side_stats"][side]["games"] += 1
+            if won:
+                player_stats["side_stats"][side]["wins"] += 1
+
+            # Death timing analysis
+            game_duration_min = info.get("gameDuration", 0) // 60
+            if deaths > 0:
+                # Approximate death distribution based on game phase
+                deaths_per_phase = deaths / 3  # Simple distribution
+                if game_duration_min >= 15:
+                    player_stats["death_analysis"]["early_deaths"] += min(deaths, deaths_per_phase)
+                if game_duration_min >= 25:
+                    player_stats["death_analysis"]["mid_deaths"] += min(deaths - deaths_per_phase, deaths_per_phase)
+                if game_duration_min > 25:
+                    player_stats["death_analysis"]["late_deaths"] += max(0, deaths - 2 * deaths_per_phase)
+
+            # Team composition
+            ally_team = [p for p in participants if p.get("teamId") == player_team_id]
+            enemy_team = [p for p in participants if p.get("teamId") != player_team_id]
+
+            team_comp = {
+                "game_number": player_stats["total_games"],
+                "win": won,
+                "ally_team": [{"champion": p.get("championName"), "role": p.get("teamPosition", "").replace("MIDDLE", "MID").replace("UTILITY", "SUP").replace("JUNGLE", "JG").replace("BOTTOM", "ADC")} for p in ally_team],
+                "enemy_team": [{"champion": p.get("championName"), "role": p.get("teamPosition", "").replace("MIDDLE", "MID").replace("UTILITY", "SUP").replace("JUNGLE", "JG").replace("BOTTOM", "ADC")} for p in enemy_team],
+                "side": side
+            }
+            player_stats["team_composition_stats"].append(team_comp)
+
             # Role stats
             if role not in player_stats["role_stats"]:
                 player_stats["role_stats"][role] = {"games": 0, "wins": 0}
@@ -202,8 +275,10 @@ class RiotAPI:
                 "champion": champion,
                 "role": role,
                 "win": won,
+                "side": side,
                 "kda": f"{kills}/{deaths}/{assists}",
                 "cs": player.get("totalMinionsKilled", 0) + player.get("neutralMinionsKilled", 0),
+                "cs_per_min": round((player.get("totalMinionsKilled", 0) + player.get("neutralMinionsKilled", 0)) / max(game_duration_min, 1), 1),
                 "gold": player.get("goldEarned", 0),
                 "damage": player.get("totalDamageDealtToChampions", 0),
                 "vision_score": player.get("visionScore", 0),
@@ -229,9 +304,31 @@ class RiotAPI:
                     player.get("item3", 0), player.get("item4", 0), player.get("item5", 0),
                     player.get("item6", 0)
                 ],
-                # Summoner spells
+                # Summoner spells & Runes
                 "spell1": player.get("summoner1Id", 0),
                 "spell2": player.get("summoner2Id", 0),
+                "primary_rune": player.get("perks", {}).get("styles", [{}])[0].get("style", 0) if player.get("perks") else 0,
+                "secondary_rune": player.get("perks", {}).get("styles", [{}])[1].get("style", 0) if len(player.get("perks", {}).get("styles", [])) > 1 else 0,
+                # Multi-kills
+                "double_kills": player.get("doubleKills", 0),
+                "triple_kills": player.get("tripleKills", 0),
+                "quadra_kills": player.get("quadraKills", 0),
+                "penta_kills": player.get("pentaKills", 0),
+                # Objectives
+                "baron_kills": player.get("challenges", {}).get("baronTakedowns", 0),
+                "dragon_kills": player.get("challenges", {}).get("dragonTakedowns", 0),
+                "herald_kills": player.get("challenges", {}).get("riftHeraldTakedowns", 0),
+                # First blood
+                "first_blood": player.get("firstBloodKill", False),
+                "first_blood_assist": player.get("firstBloodAssist", False),
+                # Team composition
+                "ally_team": [p.get("championName") for p in ally_team],
+                "enemy_team": [p.get("championName") for p in enemy_team],
+                # Performance metrics
+                "largest_killing_spree": player.get("largestKillingSpree", 0),
+                "largest_multi_kill": player.get("largestMultiKill", 0),
+                "total_heal": player.get("totalHeal", 0),
+                "time_played": player.get("timePlayed", 0),
             }
             player_stats["games_detail"].append(game_detail)
 
@@ -312,15 +409,75 @@ def generate_ai_prompt(stats: Dict) -> str:
             time_label = "Early (0-20min)" if time_cat == "early" else "Mid (20-30min)" if time_cat == "mid" else "Late (30+ min)"
             prompt += f"- {time_label}: {time_stat['games']} games ({time_wr:.1f}% WR)\n"
 
+    # Side performance
+    prompt += "\n### Side Performance (Blue vs Red)\n"
+    blue_wr = (stats["side_stats"]["blue"]["wins"] / stats["side_stats"]["blue"]["games"] * 100) if stats["side_stats"]["blue"]["games"] > 0 else 0
+    red_wr = (stats["side_stats"]["red"]["wins"] / stats["side_stats"]["red"]["games"] * 100) if stats["side_stats"]["red"]["games"] > 0 else 0
+    prompt += f"- Blue Side: {stats['side_stats']['blue']['games']} games ({blue_wr:.1f}% WR)\n"
+    prompt += f"- Red Side: {stats['side_stats']['red']['games']} games ({red_wr:.1f}% WR)\n"
+
+    # Multi-kill stats
+    prompt += "\n### Multi-Kill Statistics\n"
+    prompt += f"- Penta Kills: {stats['pentakills']}\n"
+    prompt += f"- Quadra Kills: {stats['quadrakills']}\n"
+    prompt += f"- Triple Kills: {stats['triplekills']}\n"
+    prompt += f"- Double Kills: {stats['doublekills']}\n"
+
+    # Objective control
+    prompt += "\n### Objective Control\n"
+    prompt += f"- Baron Takedowns: {stats['objective_stats']['baron_kills']}\n"
+    prompt += f"- Dragon Takedowns: {stats['objective_stats']['dragon_kills']}\n"
+    prompt += f"- Herald Takedowns: {stats['objective_stats']['herald_kills']}\n"
+    prompt += f"- Tower Takedowns: {stats['objective_stats']['tower_kills']}\n"
+
+    # First blood
+    fb_participation_rate = (stats['first_blood_stats']['participated'] / stats['first_blood_stats']['total'] * 100) if stats['first_blood_stats']['total'] > 0 else 0
+    prompt += f"\n### First Blood Participation\n"
+    prompt += f"- Participated in First Blood: {stats['first_blood_stats']['participated']}/{stats['first_blood_stats']['total']} games ({fb_participation_rate:.1f}%)\n"
+
+    # Death timing
+    total_deaths = stats["deaths"]
+    if total_deaths > 0:
+        early_death_pct = (stats["death_analysis"]["early_deaths"] / total_deaths * 100)
+        mid_death_pct = (stats["death_analysis"]["mid_deaths"] / total_deaths * 100)
+        late_death_pct = (stats["death_analysis"]["late_deaths"] / total_deaths * 100)
+        prompt += f"\n### Death Timing Analysis\n"
+        prompt += f"- Early Game Deaths (0-15min): {stats['death_analysis']['early_deaths']:.0f} ({early_death_pct:.1f}%)\n"
+        prompt += f"- Mid Game Deaths (15-25min): {stats['death_analysis']['mid_deaths']:.0f} ({mid_death_pct:.1f}%)\n"
+        prompt += f"- Late Game Deaths (25+min): {stats['death_analysis']['late_deaths']:.0f} ({late_death_pct:.1f}%)\n"
+
     prompt += "\n### Detailed Game History (Last 30 Games)\n"
     prompt += "```\n"
-    prompt += f"{'#':>3} | {'Result':5} | {'Champion':15} | {'Role':3} | {'KDA':9} | {'vs':15} | {'CS':3} | {'DMG':6} | {'Vision':3} | {'KP':5} | {'Time':4}\n"
-    prompt += "-" * 120 + "\n"
+    prompt += f"{'#':>3} | {'Result':5} | {'Side':4} | {'Champion':12} | {'Role':3} | {'KDA':9} | {'vs':12} | {'CS/m':4} | {'DMG':6} | {'KP':5} | {'Multi':5} | {'Time':4}\n"
+    prompt += "-" * 135 + "\n"
     for game in stats["games_detail"][:30]:
         result = "WIN " if game["win"] else "LOSS"
-        vs_champ = (game.get("lane_opponent", "Unknown") or "Unknown")[:15]
+        side = game.get("side", "?")[:4].upper()
+        vs_champ = (game.get("lane_opponent", "Unknown") or "Unknown")[:12]
         kp = f"{game.get('kill_participation', 0):.1%}" if game.get('kill_participation') else "N/A"
-        prompt += f"{game['game_number']:3d} | {result} | {game['champion']:15s} | {game['role']:3s} | {game['kda']:9s} | {vs_champ:15s} | {game['cs']:3d} | {game['damage']:6d} | {game['vision_score']:3d} | {kp:>5s} | {game['game_duration']:2d}m\n"
+        multi = ""
+        if game.get("penta_kills", 0) > 0:
+            multi = "PENTA"
+        elif game.get("quadra_kills", 0) > 0:
+            multi = "QUADRA"
+        elif game.get("triple_kills", 0) > 0:
+            multi = "TRIPLE"
+        elif game.get("double_kills", 0) > 0:
+            multi = f"{game.get('double_kills')}x2"
+
+        cs_per_min = game.get("cs_per_min", 0)
+        prompt += f"{game['game_number']:3d} | {result} | {side:4s} | {game['champion']:12s} | {game['role']:3s} | {game['kda']:9s} | {vs_champ:12s} | {cs_per_min:4.1f} | {game['damage']:6d} | {kp:>5s} | {multi:>5s} | {game['game_duration']:2d}m\n"
+    prompt += "```\n"
+
+    # Team composition insights (show last 10 games)
+    prompt += "\n### Team Compositions (Last 10 Games)\n"
+    prompt += "```\n"
+    for comp in stats["team_composition_stats"][-10:]:
+        result = "WIN " if comp["win"] else "LOSS"
+        side = comp["side"].upper()
+        prompt += f"\nGame {comp['game_number']} - {result} ({side} Side)\n"
+        prompt += f"  Ally:  {', '.join([c['champion'] for c in comp['ally_team']])}\n"
+        prompt += f"  Enemy: {', '.join([c['champion'] for c in comp['enemy_team']])}\n"
     prompt += "```\n"
 
     prompt += """
